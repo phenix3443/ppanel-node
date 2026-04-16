@@ -4,8 +4,9 @@ on:
   workflow_dispatch:
   release:
     types: [published]
-  pull_request:
+  push:
     branches:
+      - 'dev'
       - 'master'
 env:
   REGISTRY: ghcr.io
@@ -34,6 +35,10 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref_name == 'master' }}
+            type=raw,value=dev,enable=${{ github.ref_name == 'dev' }}
+            type=sha,prefix=sha-
           
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
