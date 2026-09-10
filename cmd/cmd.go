@@ -1,7 +1,7 @@
 package cmd
 
 import (
-	log "github.com/sirupsen/logrus"
+	"github.com/perfect-panel/ppanel-node/common/logx"
 
 	"github.com/spf13/cobra"
 )
@@ -13,6 +13,6 @@ var command = &cobra.Command{
 func Run() {
 	err := command.Execute()
 	if err != nil {
-		log.WithField("err", err).Error("Execute command failed")
+		logx.Component("server").WithError(err).Error("执行命令失败")
 	}
 }

@@ -2,10 +2,10 @@ package conf
 
 import (
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/perfect-panel/ppanel-node/common/logx"
 )
 
 func (p *Conf) Watch(filePath string, reload func()) error {
@@ -28,18 +28,12 @@ func (p *Conf) Watch(filePath string, reload func()) error {
 				pre = time.Now()
 				go func() {
 					time.Sleep(5 * time.Second)
-					log.Println("config file changed, reloading...")
-					*p = *New()
-					err := p.LoadFromPath(filePath)
-					if err != nil {
-						log.Printf("reload config error: %s", err)
-					}
+					logx.Component("watcher").Info("检测到配置文件变化，已投递重载信号")
 					reload()
-					log.Println("reload config success")
 				}()
 			case err := <-watcher.Errors:
 				if err != nil {
-					log.Printf("File watcher error: %s", err)
+					logx.Component("watcher").WithError(err).Error("配置文件监听失败")
 				}
 			}
 		}

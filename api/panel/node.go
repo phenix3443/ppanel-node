@@ -1,9 +1,12 @@
 package panel
 
 import (
+	"context"
 	"fmt"
 	"path"
 	"time"
+
+	serverv1 "github.com/perfect-panel/ppanel-node/api/server/v1"
 )
 
 type NodeInfo struct {
@@ -12,6 +15,8 @@ type NodeInfo struct {
 	PushInterval           int
 	PullInterval           int
 	TrafficReportThreshold int
+	ACMEEmail              string
+	ACMECADirURL           string
 	Protocol               *Protocol
 }
 
@@ -29,7 +34,14 @@ type NodeStatus struct {
 	Uptime uint64
 }
 
-func (c *ClientV1) ReportNodeStatus(nodeStatus *NodeStatus) (err error) {
+func (c *NodeClient) ReportNodeStatus(nodeStatus *NodeStatus) (err error) {
+	return c.ReportNodeStatusContext(context.Background(), nodeStatus)
+}
+
+func (c *NodeClient) ReportNodeStatusContext(ctx context.Context, nodeStatus *NodeStatus) error {
+	if c.UseProtobuf {
+		return c.reportNodeStatusProtobuf(ctx, nodeStatus)
+	}
 	p := "/v1/server/status"
 	status := ServerPushStatusRequest{
 		Cpu:       nodeStatus.CPU,
@@ -37,8 +49,27 @@ func (c *ClientV1) ReportNodeStatus(nodeStatus *NodeStatus) (err error) {
 		Disk:      nodeStatus.Disk,
 		UpdatedAt: time.Now().UnixMilli(),
 	}
-	if _, err = c.Client.R().SetBody(status).ForceContentType("application/json").Post(p); err != nil {
+	r, err := c.Client.R().SetContext(ctx).SetBody(status).ForceContentType("application/json").Post(p)
+	if err != nil {
 		return fmt.Errorf("访问 %s 失败: %v", path.Join(c.APIHost+p), err.Error())
 	}
-	return nil
+	return checkPanelResponse(r, path.Join(c.APIHost+p))
+}
+
+func (c *NodeClient) reportNodeStatusProtobuf(ctx context.Context, nodeStatus *NodeStatus) error {
+	const p = "/v1/server/status"
+	request := c.Client.R().SetContext(ctx)
+	if err := setProtobufRequestBody(request, &serverv1.PushServerStatusRequest{
+		Cpu:       nodeStatus.CPU,
+		Mem:       nodeStatus.Mem,
+		Disk:      nodeStatus.Disk,
+		UpdatedAt: time.Now().UnixMilli(),
+	}); err != nil {
+		return err
+	}
+	r, err := request.Post(p)
+	if err != nil {
+		return fmt.Errorf("访问 %s 失败: %v", path.Join(c.APIHost+p), err)
+	}
+	return checkPanelResponse(r, path.Join(c.APIHost+p))
 }

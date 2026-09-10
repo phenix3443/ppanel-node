@@ -20,18 +20,21 @@ type LogConfig struct {
 }
 
 type ServerApiConfig struct {
-	ApiHost   string `mapstructure:"ApiHost"`
-	ServerId  int    `mapstructure:"ServerID"`
-	SecretKey string `mapstructure:"SecretKey"`
-	Timeout   int    `mapstructure:"Timeout"`
+	ApiHost      string `mapstructure:"ApiHost"`
+	ServerId     int    `mapstructure:"ServerID"`
+	SecretKey    string `mapstructure:"SecretKey"`
+	Timeout      int    `mapstructure:"Timeout"`
+	ACMEEmail    string `mapstructure:"ACMEEmail"`
+	ACMECADirURL string `mapstructure:"ACMECADirURL"`
 }
 
 type NodeApiConfig struct {
-	APIHost   string `mapstructure:"ApiHost"`
-	NodeID    int    `mapstructure:"NodeID"`
-	SecretKey string `mapstructure:"SecretKey"`
-	NodeType  string `mapstructure:"NodeType"`
-	Timeout   int    `mapstructure:"Timeout"`
+	APIHost     string `mapstructure:"ApiHost"`
+	NodeID      int    `mapstructure:"NodeID"`
+	SecretKey   string `mapstructure:"SecretKey"`
+	NodeType    string `mapstructure:"NodeType"`
+	Timeout     int    `mapstructure:"Timeout"`
+	UseProtobuf bool
 }
 
 func New() *Conf {

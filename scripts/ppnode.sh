@@ -444,6 +444,10 @@ Api:
   SecretKey: ${secret_key}
   # 请求超时时间（单位：秒）
   Timeout: 30
+  # ACME 账户通知邮箱；使用 dns/http 自动签发证书时建议填写
+  ACMEEmail:
+  # 可选 ACME Directory URL，例如 Pebble 或 Let's Encrypt staging
+  ACMECADirURL:
 EOF
         echo -e "${green}PPanel-node 配置文件生成完成,正在重新启动服务${plain}"
         if [[ x"${release}" == x"alpine" ]]; then

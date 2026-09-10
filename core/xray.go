@@ -1,15 +1,18 @@
 package core
 
 import (
+	"context"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/perfect-panel/ppanel-node/api/panel"
+	"github.com/perfect-panel/ppanel-node/common/logx"
 	"github.com/perfect-panel/ppanel-node/common/task"
 	"github.com/perfect-panel/ppanel-node/conf"
 	"github.com/perfect-panel/ppanel-node/core/app/dispatcher"
 	_ "github.com/perfect-panel/ppanel-node/core/distro/all"
-	log "github.com/sirupsen/logrus"
+	"github.com/perfect-panel/ppanel-node/limiter"
 	"github.com/xtls/xray-core/app/proxyman"
 	"github.com/xtls/xray-core/app/stats"
 	"github.com/xtls/xray-core/common/serial"
@@ -29,11 +32,12 @@ type AddUsersParams struct {
 
 type XrayCore struct {
 	Config                      *conf.Conf
-	Client                      *panel.ClientV2
+	Client                      *panel.ServerClient
 	ReloadCh                    chan struct{}
 	serverConfigMonitorPeriodic *task.Task
 	access                      sync.Mutex
 	Server                      *core.Instance
+	LimiterManager              *limiter.Manager
 	users                       *UserMap
 	ihm                         inbound.Manager
 	ohm                         outbound.Manager
@@ -45,10 +49,11 @@ type UserMap struct {
 	mapLock sync.RWMutex
 }
 
-func New(config *conf.Conf, client *panel.ClientV2) *XrayCore {
+func New(config *conf.Conf, client *panel.ServerClient) *XrayCore {
 	core := &XrayCore{
-		Config: config,
-		Client: client,
+		Config:         config,
+		Client:         client,
+		LimiterManager: limiter.NewManager(),
 		users: &UserMap{
 			uidMap: make(map[string]int),
 		},
@@ -59,35 +64,51 @@ func New(config *conf.Conf, client *panel.ClientV2) *XrayCore {
 func (v *XrayCore) Start(serverconfig *panel.ServerConfigResponse) error {
 	v.access.Lock()
 	defer v.access.Unlock()
-	v.Server = getCore(v.Config, serverconfig)
+	server, err := getCore(v.Config, serverconfig)
+	if err != nil {
+		return err
+	}
+	v.Server = server
 	if err := v.Server.Start(); err != nil {
+		_ = v.Server.Close()
 		return err
 	}
 	v.ihm = v.Server.GetFeature(inbound.ManagerType()).(inbound.Manager)
 	v.ohm = v.Server.GetFeature(outbound.ManagerType()).(outbound.Manager)
 	v.dispatcher = v.Server.GetFeature(routing.DispatcherType()).(*dispatcher.DefaultDispatcher)
+	v.dispatcher.LimiterManager = v.LimiterManager
 	v.startTasks(serverconfig)
 	return nil
 }
 
 func (v *XrayCore) Close() error {
+	if v == nil {
+		return nil
+	}
 	v.access.Lock()
 	defer v.access.Unlock()
 	if v.serverConfigMonitorPeriodic != nil {
 		v.serverConfigMonitorPeriodic.Close()
+		v.serverConfigMonitorPeriodic = nil
 	}
+	server := v.Server
 	v.Config = nil
 	v.ihm = nil
 	v.ohm = nil
 	v.dispatcher = nil
-	err := v.Server.Close()
+	v.LimiterManager = nil
+	v.Server = nil
+	if server == nil {
+		return nil
+	}
+	err := server.Close()
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func getCore(c *conf.Conf, serverconfig *panel.ServerConfigResponse) *core.Instance {
+func getCore(c *conf.Conf, serverconfig *panel.ServerConfigResponse) (*core.Instance, error) {
 	// Log Config
 	coreLogConfig := &coreConf.LogConfig{
 		LogLevel:  c.LogConfig.Level,
@@ -97,7 +118,7 @@ func getCore(c *conf.Conf, serverconfig *panel.ServerConfigResponse) *core.Insta
 	// Custom config
 	dnsConfig, outBoundConfig, routeConfig, err := GetCustomConfig(serverconfig)
 	if err != nil {
-		log.WithField("err", err).Panic("failed to build custom config")
+		return nil, fmt.Errorf("build custom configuration: %w", err)
 	}
 	// Inbound config
 	var inBoundConfig []*core.InboundHandlerConfig
@@ -107,10 +128,15 @@ func getCore(c *conf.Conf, serverconfig *panel.ServerConfigResponse) *core.Insta
 		StatsUserUplink:   true,
 		StatsUserDownlink: true,
 		Handshake:         proto.Uint32(4),
-		ConnectionIdle:    proto.Uint32(30),
-		UplinkOnly:        proto.Uint32(2),
-		DownlinkOnly:      proto.Uint32(4),
-		BufferSize:        proto.Int32(64),
+		// ppnode lowered this to 30s, which xray's polling activity timer turns
+		// into a ~60s effective timeout, dropping idle-but-healthy long-lived
+		// connections (interactive SSH, database sessions, MQTT/WebSocket, etc.).
+		// Restore it to 120 — the value used by upstream wyx2685/v2node, which
+		// this project is modified from.
+		ConnectionIdle: proto.Uint32(120),
+		UplinkOnly:     proto.Uint32(2),
+		DownlinkOnly:   proto.Uint32(4),
+		BufferSize:     proto.Int32(64),
 	}
 	corePolicyConfig := &coreConf.PolicyConfig{}
 	corePolicyConfig.Levels = map[uint32]*coreConf.Policy{0: levelPolicyConfig}
@@ -132,9 +158,9 @@ func getCore(c *conf.Conf, serverconfig *panel.ServerConfigResponse) *core.Insta
 	}
 	server, err := core.New(config)
 	if err != nil {
-		log.WithField("err", err).Panic("failed to create instance")
+		return nil, fmt.Errorf("create Xray instance: %w", err)
 	}
-	return server
+	return server, nil
 }
 
 func (c *XrayCore) startTasks(serverconfig *panel.ServerConfigResponse) {
@@ -146,18 +172,19 @@ func (c *XrayCore) startTasks(serverconfig *panel.ServerConfigResponse) {
 	c.serverConfigMonitorPeriodic = &task.Task{
 		Interval: time.Duration(pullinverval) * time.Second,
 		Execute:  c.ServerConfigMonitor,
+		ReloadCh: c.ReloadCh,
 	}
 	_ = c.serverConfigMonitorPeriodic.Start(false)
 }
 
-func (c *XrayCore) ServerConfigMonitor() (err error) {
-	newServerConfig, err := panel.GetServerConfig(c.Client)
+func (c *XrayCore) ServerConfigMonitor(ctx context.Context) (err error) {
+	newServerConfig, err := panel.GetServerConfig(ctx, c.Client)
 	if err != nil {
-		log.WithField("err", err).Error("获取服务端配置失败")
+		logx.Component("xray").WithError(err).Error("获取服务端配置失败")
 		return nil
 	}
 	if newServerConfig != nil {
-		log.Error("检测到服务端配置变更，正在重启节点...")
+		logx.Component("xray").Info("检测到服务端配置变更，已投递重载信号")
 		// Non-blocking signal to avoid goroutine stuck when channel is full or nil
 		if c.ReloadCh != nil {
 			select {
