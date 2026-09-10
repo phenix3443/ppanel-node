@@ -4,7 +4,6 @@ package dispatcher
 
 import (
 	"context"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -38,14 +37,15 @@ type cachedReader struct {
 	sync.Mutex
 	reader buf.TimeoutReader
 	cache  buf.MultiBuffer
+	err    error
 }
 
 func (r *cachedReader) Cache(b *buf.Buffer, deadline time.Duration) error {
 	mb, err := r.reader.ReadMultiBufferTimeout(deadline)
-	if err != nil {
-		return err
-	}
 	r.Lock()
+	if err != nil {
+		r.err = err
+	}
 	if !mb.IsEmpty() {
 		r.cache, _ = buf.MergeMulti(r.cache, mb)
 	}
@@ -54,35 +54,35 @@ func (r *cachedReader) Cache(b *buf.Buffer, deadline time.Duration) error {
 	n := r.cache.Copy(rawBytes)
 	b.Resize(0, int32(n))
 	r.Unlock()
-	return nil
+	return err
 }
 
-func (r *cachedReader) readInternal() buf.MultiBuffer {
+func (r *cachedReader) readInternal() (buf.MultiBuffer, error) {
 	r.Lock()
 	defer r.Unlock()
 
 	if r.cache != nil && !r.cache.IsEmpty() {
 		mb := r.cache
 		r.cache = nil
-		return mb
+		return mb, r.err
 	}
 
-	return nil
+	return nil, r.err
 }
 
 func (r *cachedReader) ReadMultiBuffer() (buf.MultiBuffer, error) {
-	mb := r.readInternal()
-	if mb != nil {
-		return mb, nil
+	mb, err := r.readInternal()
+	if mb != nil || err != nil {
+		return mb, err
 	}
 
 	return r.reader.ReadMultiBuffer()
 }
 
 func (r *cachedReader) ReadMultiBufferTimeout(timeout time.Duration) (buf.MultiBuffer, error) {
-	mb := r.readInternal()
-	if mb != nil {
-		return mb, nil
+	mb, err := r.readInternal()
+	if mb != nil || err != nil {
+		return mb, err
 	}
 
 	return r.reader.ReadMultiBufferTimeout(timeout)
@@ -101,13 +101,14 @@ func (r *cachedReader) Interrupt() {
 
 // DefaultDispatcher is a default implementation of Dispatcher.
 type DefaultDispatcher struct {
-	ohm          outbound.Manager
-	router       routing.Router
-	policy       policy.Manager
-	stats        stats.Manager
-	fdns         dns.FakeDNSEngine
-	Counter      sync.Map
-	LinkManagers sync.Map // map[string]*LinkManager
+	ohm            outbound.Manager
+	router         routing.Router
+	policy         policy.Manager
+	stats          stats.Manager
+	fdns           dns.FakeDNSEngine
+	Counter        sync.Map
+	LinkManagers   sync.Map // map[string]*LinkManager
+	LimiterManager *limiter.Manager
 }
 
 func init() {
@@ -171,7 +172,7 @@ func (d *DefaultDispatcher) getLink(ctx context.Context, network net.Network) (*
 	var limit *limiter.Limiter
 	var err error
 	if user != nil && len(user.Email) > 0 {
-		limit, err = limiter.GetLimiter(sessionInbound.Tag)
+		limit, err = d.LimiterManager.Get(sessionInbound.Tag)
 		if err != nil {
 			errors.LogInfo(ctx, "get limiter ", sessionInbound.Tag, " error: ", err)
 			common.Close(outboundLink.Writer)
@@ -183,7 +184,6 @@ func (d *DefaultDispatcher) getLink(ctx context.Context, network net.Network) (*
 		// Speed Limit and Device Limit
 		w, reject := limit.CheckLimit(user.Email,
 			sessionInbound.Source.Address.IP().String(),
-			network == net.Network_TCP,
 			sessionInbound.Source.Network == net.Network_TCP)
 		if reject {
 			errors.LogInfo(ctx, "Limited ", user.Email, " by conn or ip")
@@ -193,15 +193,8 @@ func (d *DefaultDispatcher) getLink(ctx context.Context, network net.Network) (*
 			common.Interrupt(inboundLink.Reader)
 			return nil, nil, nil, errors.New("Limited ", user.Email, " by conn or ip")
 		}
-		var lm *LinkManager
-		if lmloaded, ok := d.LinkManagers.Load(user.Email); !ok {
-			lm = &LinkManager{
-				links: make(map[*ManagedWriter]buf.Reader),
-			}
-			d.LinkManagers.Store(user.Email, lm)
-		} else {
-			lm = lmloaded.(*LinkManager)
-		}
+		lmloaded, _ := d.LinkManagers.LoadOrStore(user.Email, &LinkManager{links: make(map[*ManagedWriter]buf.Reader)})
+		lm := lmloaded.(*LinkManager)
 		managedWriter := &ManagedWriter{
 			writer:  uplinkWriter,
 			manager: lm,
@@ -213,13 +206,8 @@ func (d *DefaultDispatcher) getLink(ctx context.Context, network net.Network) (*
 			inboundLink.Writer = rate.NewRateLimitWriter(inboundLink.Writer, w)
 			outboundLink.Writer = rate.NewRateLimitWriter(outboundLink.Writer, w)
 		}
-		var t *counter.TrafficCounter
-		if c, ok := d.Counter.Load(sessionInbound.Tag); !ok {
-			t = counter.NewTrafficCounter()
-			d.Counter.Store(sessionInbound.Tag, t)
-		} else {
-			t = c.(*counter.TrafficCounter)
-		}
+		stored, _ := d.Counter.LoadOrStore(sessionInbound.Tag, counter.NewTrafficCounter())
+		t := stored.(*counter.TrafficCounter)
 		ts := t.GetCounter(user.Email)
 		upcounter := &counter.XrayTrafficCounter{V: &ts.UpCounter}
 		downcounter := &counter.XrayTrafficCounter{V: &ts.DownCounter}
@@ -241,22 +229,11 @@ func (d *DefaultDispatcher) shouldOverride(ctx context.Context, result SniffResu
 	if domain == "" {
 		return false
 	}
-	for _, d := range request.ExcludeForDomain {
-		if strings.HasPrefix(d, "regexp:") {
-			pattern := d[7:]
-			re, err := regexp.Compile(pattern)
-			if err != nil {
-				errors.LogInfo(ctx, "Unable to compile regex")
-				continue
-			}
-			if re.MatchString(domain) {
-				return false
-			}
-		} else {
-			if strings.ToLower(domain) == d {
-				return false
-			}
-		}
+	if request.ExcludeForDomain != nil && request.ExcludeForDomain.MatchAny(strings.ToLower(domain)) {
+		return false
+	}
+	if request.ExcludeForIP != nil && destination.Address.Family().IsIP() && request.ExcludeForIP.Match(destination.Address.IP()) {
+		return false
 	}
 	protocolString := result.Protocol()
 	if resComp, ok := result.(SnifferResultComposite); ok {
@@ -368,7 +345,7 @@ func (d *DefaultDispatcher) DispatchLink(ctx context.Context, destination net.De
 	var limit *limiter.Limiter
 	var err error
 	if user != nil && len(user.Email) > 0 {
-		limit, err = limiter.GetLimiter(sessionInbound.Tag)
+		limit, err = d.LimiterManager.Get(sessionInbound.Tag)
 		if err != nil {
 			errors.LogInfo(ctx, "get limiter ", sessionInbound.Tag, " error: ", err)
 			common.Close(outbound.Writer)
@@ -378,7 +355,6 @@ func (d *DefaultDispatcher) DispatchLink(ctx context.Context, destination net.De
 		// Speed Limit and Device Limit
 		w, reject := limit.CheckLimit(user.Email,
 			sessionInbound.Source.Address.IP().String(),
-			destination.Network == net.Network_TCP,
 			sessionInbound.Source.Network == net.Network_TCP)
 		if reject {
 			errors.LogInfo(ctx, "Limited ", user.Email, " by conn or ip")
@@ -386,15 +362,8 @@ func (d *DefaultDispatcher) DispatchLink(ctx context.Context, destination net.De
 			common.Interrupt(outbound.Reader)
 			return errors.New("Limited ", user.Email, " by conn or ip")
 		}
-		var lm *LinkManager
-		if lmloaded, ok := d.LinkManagers.Load(user.Email); !ok {
-			lm = &LinkManager{
-				links: make(map[*ManagedWriter]buf.Reader),
-			}
-			d.LinkManagers.Store(user.Email, lm)
-		} else {
-			lm = lmloaded.(*LinkManager)
-		}
+		lmloaded, _ := d.LinkManagers.LoadOrStore(user.Email, &LinkManager{links: make(map[*ManagedWriter]buf.Reader)})
+		lm := lmloaded.(*LinkManager)
 		managedWriter := &ManagedWriter{
 			writer:  outbound.Writer,
 			manager: lm,
@@ -404,13 +373,8 @@ func (d *DefaultDispatcher) DispatchLink(ctx context.Context, destination net.De
 			sessionInbound.CanSpliceCopy = 3
 			outbound.Writer = rate.NewRateLimitWriter(outbound.Writer, w)
 		}
-		var t *counter.TrafficCounter
-		if c, ok := d.Counter.Load(sessionInbound.Tag); !ok {
-			t = counter.NewTrafficCounter()
-			d.Counter.Store(sessionInbound.Tag, t)
-		} else {
-			t = c.(*counter.TrafficCounter)
-		}
+		stored, _ := d.Counter.LoadOrStore(sessionInbound.Tag, counter.NewTrafficCounter())
+		t := stored.(*counter.TrafficCounter)
 
 		ts := t.GetCounter(user.Email)
 		downcounter := &counter.XrayTrafficCounter{V: &ts.DownCounter}

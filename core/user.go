@@ -16,7 +16,7 @@ import (
 	"github.com/xtls/xray-core/infra/conf"
 	"github.com/xtls/xray-core/proxy"
 	"github.com/xtls/xray-core/proxy/anytls"
-	"github.com/xtls/xray-core/proxy/hysteria2"
+	hyaccount "github.com/xtls/xray-core/proxy/hysteria/account"
 	"github.com/xtls/xray-core/proxy/shadowsocks"
 	"github.com/xtls/xray-core/proxy/shadowsocks_2022"
 	"github.com/xtls/xray-core/proxy/trojan"
@@ -83,9 +83,9 @@ func (vc *XrayCore) GetUserTrafficSlice(tag string, mintraffic int) ([]panel.Use
 			traffic := value.(*counter.TrafficStorage)
 			up := traffic.UpCounter.Load()
 			down := traffic.DownCounter.Load()
-			if up+down > int64(mintraffic*1000) {
-				traffic.UpCounter.Store(0)
-				traffic.DownCounter.Store(0)
+			if up+down > int64(mintraffic) {
+				up = traffic.UpCounter.Swap(0)
+				down = traffic.DownCounter.Swap(0)
 				if vc.users.uidMap[email] == 0 {
 					c.Delete(email)
 					return true
@@ -260,8 +260,8 @@ func getCipherFromString(c string) shadowsocks.CipherType {
 		return shadowsocks.CipherType_AES_256_GCM
 	case "chacha20-poly1305", "aead_chacha20_poly1305", "chacha20-ietf-poly1305":
 		return shadowsocks.CipherType_CHACHA20_POLY1305
-	case "none", "plain":
-		return shadowsocks.CipherType_NONE
+	case "xchacha20-poly1305", "aead_xchacha20_poly1305", "xchacha20-ietf-poly1305":
+		return shadowsocks.CipherType_XCHACHA20_POLY1305
 	default:
 		return shadowsocks.CipherType_UNKNOWN
 	}
@@ -276,8 +276,8 @@ func buildHysteria2Users(tag string, userInfo []panel.UserInfo) (users []*protoc
 }
 
 func buildHysteria2User(tag string, userInfo *panel.UserInfo) (user *protocol.User) {
-	hysteria2Account := &hysteria2.Account{
-		Password: userInfo.Uuid,
+	hysteria2Account := &hyaccount.Account{
+		Auth: userInfo.Uuid,
 	}
 	return &protocol.User{
 		Level:   0,
