@@ -75,7 +75,8 @@ var upgradeCommand = cobra.Command{
 		if err != nil {
 			return err
 		}
-		if err := selfupdate.Replace(self, payload); err != nil {
+		// 先验证再替换：换坏了的节点连不上面板，也就收不到「换回去」的指令。
+		if err := selfupdate.ReplaceVerified(self, payload, release.TagName); err != nil {
 			return err
 		}
 		fmt.Printf("已替换 %s → %s\n", self, release.TagName)

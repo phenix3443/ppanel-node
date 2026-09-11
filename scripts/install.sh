@@ -301,6 +301,12 @@ install_ppnode() {
     cp geoip.dat /etc/ppanel-node/
     cp geosite.dat /etc/ppanel-node/
     if [[ x"${release}" == x"alpine" ]]; then
+        # 同上：OpenRC 上的大写残留也要清
+        if [ -f /etc/init.d/PPanel-node ]; then
+            rc-service PPanel-node stop 2>/dev/null
+            rc-update del PPanel-node default 2>/dev/null
+            rm -f /etc/init.d/PPanel-node
+        fi
         rm /etc/init.d/ppanel-node -f
         cat <<EOF > /etc/init.d/ppanel-node
 #!/sbin/openrc-run
@@ -323,6 +329,16 @@ EOF
         rc-update add ppanel-node default
         echo -e "${green}PPanel-node ${last_version}${plain} 安装完成，已设置开机自启"
     else
+        # 【先清掉大写那套】老版本装的是 PPanel-node.service +
+        # /usr/local/PPanel-node，Linux 区分大小写，不显式停掉+禁用的话
+        # 升级后会变成两个 unit 都开机自启、抢同一批端口。
+        if systemctl list-unit-files 2>/dev/null | grep -q "^PPanel-node.service"; then
+            systemctl stop PPanel-node.service 2>/dev/null
+            systemctl disable PPanel-node.service 2>/dev/null
+            rm -f /etc/systemd/system/PPanel-node.service
+            echo "已移除旧的 PPanel-node.service（大写）"
+        fi
+        rm -rf /usr/local/PPanel-node /etc/PPanel-node
         rm /etc/systemd/system/ppanel-node.service -f
         cat <<EOF > /etc/systemd/system/ppanel-node.service
 [Unit]
@@ -348,7 +364,12 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
-ReadWritePaths=/var/log
+# 【这些目录必须可写，否则是两个静默故障】
+#   /usr/local/ppanel-node —— upgrade 要在这里落临时文件再 rename 替换自己，
+#     只读的话自升级永远 EROFS；
+#   /etc/ppanel-node       —— ACME 证书签发和续期写在这里，只读会让 TLS 节点
+#     在证书到期后直接挂掉，而且是几十天后才爆。
+ReadWritePaths=/var/log /usr/local/ppanel-node /etc/ppanel-node
 
 [Install]
 WantedBy=multi-user.target

@@ -1721,8 +1721,13 @@ type QueryServerProtocolConfigData struct {
 	Outbound               []*Outbound            `protobuf:"bytes,7,rep,name=outbound,proto3" json:"outbound,omitempty"`
 	Protocols              []*ServerProtocol      `protobuf:"bytes,8,rep,name=protocols,proto3" json:"protocols,omitempty"`
 	Total                  int64                  `protobuf:"varint,9,opt,name=total,proto3" json:"total,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// target_version 是控制台希望该节点运行的版本，空串表示不干预。
+	// 【必须同时存在于 JSON 和 protobuf 两条路径】节点拉配置时无条件请求
+	// protobuf，只加 JSON 字段的话它永远读不到，而且不会报错。
+	// 【字段号必须和另一个仓库一致】见本文件顶部关于 wire 兼容的说明。
+	TargetVersion string `protobuf:"bytes,10,opt,name=target_version,json=targetVersion,proto3" json:"target_version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *QueryServerProtocolConfigData) Reset() {
@@ -1816,6 +1821,13 @@ func (x *QueryServerProtocolConfigData) GetTotal() int64 {
 		return x.Total
 	}
 	return 0
+}
+
+func (x *QueryServerProtocolConfigData) GetTargetVersion() string {
+	if x != nil {
+		return x.TargetVersion
+	}
+	return ""
 }
 
 type QueryServerProtocolConfigResponse struct {
@@ -2064,7 +2076,7 @@ const file_api_server_v1_node_server_proto_rawDesc = "" +
 	"\tcert_mode\x18? \x01(\tR\bcertMode\x12*\n" +
 	"\x11cert_dns_provider\x18@ \x01(\tR\x0fcertDnsProvider\x12 \n" +
 	"\fcert_dns_env\x18A \x01(\tR\n" +
-	"certDnsEnv\"\xa8\x03\n" +
+	"certDnsEnv\"\xcf\x03\n" +
 	"\x1dQueryServerProtocolConfigData\x128\n" +
 	"\x18traffic_report_threshold\x18\x01 \x01(\x03R\x16trafficReportThreshold\x12#\n" +
 	"\rpush_interval\x18\x02 \x01(\x03R\fpushInterval\x12#\n" +
@@ -2075,7 +2087,9 @@ const file_api_server_v1_node_server_proto_rawDesc = "" +
 	"\x05block\x18\x06 \x03(\tR\x05block\x12;\n" +
 	"\boutbound\x18\a \x03(\v2\x1f.ppanel.node.server.v1.OutboundR\boutbound\x12C\n" +
 	"\tprotocols\x18\b \x03(\v2%.ppanel.node.server.v1.ServerProtocolR\tprotocols\x12\x14\n" +
-	"\x05total\x18\t \x01(\x03R\x05total\"\x9b\x01\n" +
+	"\x05total\x18\t \x01(\x03R\x05total\x12%\n" +
+	"\x0etarget_version\x18\n" +
+	" \x01(\tR\rtargetVersion\"\x9b\x01\n" +
 	"!QueryServerProtocolConfigResponse\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\rR\x04code\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12H\n" +

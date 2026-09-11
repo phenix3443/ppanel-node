@@ -1,6 +1,10 @@
 package selfupdate
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 // 资产名必须和 release.yml 用的同一张表（.github/build/friendly-filenames.json）
 // 对齐。手写一份映射迟早漂移，所以这里验的是「读的就是那张表」。
@@ -113,8 +117,26 @@ func TestShouldSwitchVersion(t *testing.T) {
 	}
 }
 
-// 同一个目标版本失败后不该每 60 秒重试一次：拉取周期很短，反复下载一个
-// 装不上的版本会刷满日志和带宽，而原因（比如版本号填错）不会自己好转。
+// 失败后要退避，但【不能永久放弃】：只试一次的话，一次网络抖动就会把这个
+// 目标版本永久钉死——运维把期望版本清空再设回同一个值也不会重试。
+func TestApplyTargetVersionBacksOffButResumesOnTargetChange(t *testing.T) {
+	ResetAttemptForTest()
+	restart := func() error { return nil }
+	const bad = "phenix3443/definitely-not-a-repo-xyz"
+
+	if err := ApplyTargetVersion("v1.1.13", "v9.9.9", bad, restart); err == nil {
+		t.Fatal("第一次应当报错")
+	}
+	// 退避窗口内直接跳过
+	if err := ApplyTargetVersion("v1.1.13", "v9.9.9", bad, restart); err != nil {
+		t.Fatalf("退避期内应当静默跳过，得到 %v", err)
+	}
+	// 【关键】换一个目标（含清空后改回来）必须重新开始尝试，不能被钉死
+	if err := ApplyTargetVersion("v1.1.13", "v9.9.8", bad, restart); err == nil {
+		t.Fatal("换了目标版本应当重新尝试（并再次报错），而不是被退避挡住")
+	}
+}
+
 func TestApplyTargetVersionDoesNotRetrySameTarget(t *testing.T) {
 	ResetAttemptForTest()
 	var restarts int
@@ -146,5 +168,43 @@ func TestApplyTargetVersionNoopCases(t *testing.T) {
 	}
 	if restarts != 0 {
 		t.Fatalf("无操作时不该重启，重启了 %d 次", restarts)
+	}
+}
+
+// 【先验证再替换】换坏了的代价极高：节点起不来就拉不到配置，也就再也收不到
+// 「换回旧版本」的指令，只能人上机器。所以在动现役二进制之前，先把下载来的
+// 那个跑一次 `version`，确认它能执行且自报的版本就是目标版本。
+// 这能挡住架构不匹配（armv6 拿到 v7a 包会 SIGILL）和资产损坏。
+func TestVerifyDownloadedBinaryRejectsNonExecutable(t *testing.T) {
+	dir := t.TempDir()
+	bad := filepath.Join(dir, "notabinary")
+	if err := os.WriteFile(bad, []byte("#!/nonexistent\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyBinary(bad, "v1.1.14"); err == nil {
+		t.Fatal("跑不起来的文件应当被拒绝")
+	}
+}
+
+func TestVerifyDownloadedBinaryRejectsWrongVersion(t *testing.T) {
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "fake")
+	// 一个能跑但自报别的版本的“二进制”
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho 'PPanel-node v0.0.1'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyBinary(fake, "v1.1.14"); err == nil {
+		t.Fatal("自报版本与目标不符时应当被拒绝——否则会陷入每 60 秒一次的重启循环")
+	}
+}
+
+func TestVerifyDownloadedBinaryAcceptsMatchingVersion(t *testing.T) {
+	dir := t.TempDir()
+	ok := filepath.Join(dir, "ok")
+	if err := os.WriteFile(ok, []byte("#!/bin/sh\necho 'PPanel-node v1.1.14 (whatever)'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyBinary(ok, "v1.1.14"); err != nil {
+		t.Fatalf("版本相符应当通过，得到 %v", err)
 	}
 }
