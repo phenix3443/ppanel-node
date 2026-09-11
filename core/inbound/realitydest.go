@@ -8,8 +8,12 @@ import (
 )
 
 // realityHandshakeBudget 是 xtls/reality 缓存目标站握手用的固定缓冲
-// （该库 tls.go 里的 `size = 8192`）。它按 TLS 记录逐条比较
+// （该库 tls.go 里的 `size`）。它按 TLS 记录逐条比较
 // `5 + 记录长度 > size`，一超就放弃握手。
+//
+// 【升依赖时必须核对这个值】它原本是 8192，XTLS/REALITY#33 在 2026-09-08 提到
+// 17*1024。对不上就会误报——把本来能用的 dest 判成不可用。
+// TestBudgetMatchesUpstreamBuffer 会在忘记同步时挂掉。
 //
 // 【为什么要我们自己查】超限时那边只有一句 `break`，没有任何日志；
 // 默认 show=false 的情况下运维只看到
@@ -17,7 +21,7 @@ import (
 // 因果被指向客户端。2026-09-11 就是这样：www.microsoft.com 的证书链变长，
 // 承载它的记录到了 8273 字节，节点在自己零改动的情况下全盘失效，
 // 排查绕了一整轮才定位到目标站。
-const realityHandshakeBudget = 8192
+const realityHandshakeBudget = 17 * 1024
 
 // FirstOversizedRecord 返回第一条会超出预算的 TLS 记录的完整长度
 // （含 5 字节记录头），都在预算内时返回 0。
