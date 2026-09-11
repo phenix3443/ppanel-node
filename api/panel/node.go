@@ -15,6 +15,7 @@ type NodeInfo struct {
 	PushInterval           int
 	PullInterval           int
 	TrafficReportThreshold int
+	TargetVersion          string
 	ACMEEmail              string
 	ACMECADirURL           string
 	Protocol               *Protocol
@@ -25,13 +26,19 @@ type ServerPushStatusRequest struct {
 	Mem       float64 `json:"mem"`
 	Disk      float64 `json:"disk"`
 	UpdatedAt int64   `json:"updated_at"`
+	// Version 是本节点正在运行的版本；LatestVersion 是节点自己查到的上游最新版。
+	// 让节点自己查，面板就不必再去访问 GitHub。查不到时为空串，不影响上报。
+	Version       string `json:"version,omitempty"`
+	LatestVersion string `json:"latest_version,omitempty"`
 }
 
 type NodeStatus struct {
-	CPU    float64
-	Mem    float64
-	Disk   float64
-	Uptime uint64
+	CPU           float64
+	Mem           float64
+	Disk          float64
+	Uptime        uint64
+	Version       string
+	LatestVersion string
 }
 
 func (c *NodeClient) ReportNodeStatus(nodeStatus *NodeStatus) (err error) {
@@ -44,10 +51,12 @@ func (c *NodeClient) ReportNodeStatusContext(ctx context.Context, nodeStatus *No
 	}
 	p := "/v1/server/status"
 	status := ServerPushStatusRequest{
-		Cpu:       nodeStatus.CPU,
-		Mem:       nodeStatus.Mem,
-		Disk:      nodeStatus.Disk,
-		UpdatedAt: time.Now().UnixMilli(),
+		Cpu:           nodeStatus.CPU,
+		Version:       nodeStatus.Version,
+		LatestVersion: nodeStatus.LatestVersion,
+		Mem:           nodeStatus.Mem,
+		Disk:          nodeStatus.Disk,
+		UpdatedAt:     time.Now().UnixMilli(),
 	}
 	r, err := c.Client.R().SetContext(ctx).SetBody(status).ForceContentType("application/json").Post(p)
 	if err != nil {
@@ -60,10 +69,12 @@ func (c *NodeClient) reportNodeStatusProtobuf(ctx context.Context, nodeStatus *N
 	const p = "/v1/server/status"
 	request := c.Client.R().SetContext(ctx)
 	if err := setProtobufRequestBody(request, &serverv1.PushServerStatusRequest{
-		Cpu:       nodeStatus.CPU,
-		Mem:       nodeStatus.Mem,
-		Disk:      nodeStatus.Disk,
-		UpdatedAt: time.Now().UnixMilli(),
+		Cpu:           nodeStatus.CPU,
+		Mem:           nodeStatus.Mem,
+		Disk:          nodeStatus.Disk,
+		UpdatedAt:     time.Now().UnixMilli(),
+		Version:       nodeStatus.Version,
+		LatestVersion: nodeStatus.LatestVersion,
 	}); err != nil {
 		return err
 	}

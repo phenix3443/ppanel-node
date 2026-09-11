@@ -197,18 +197,18 @@ install_base() {
 
 # 0: running, 1: not running, 2: not installed
 check_status() {
-    if [[ ! -f /usr/local/PPanel-node/ppnode ]]; then
+    if [[ ! -f /usr/local/ppanel-node/ppnode ]]; then
         return 2
     fi
     if [[ x"${release}" == x"alpine" ]]; then
-        temp=$(service PPanel-node status | awk '{print $3}')
+        temp=$(service ppanel-node status | awk '{print $3}')
         if [[ x"${temp}" == x"started" ]]; then
             return 0
         else
             return 1
         fi
     else
-        temp=$(systemctl status PPanel-node | grep Active | awk '{print $3}' | cut -d "(" -f2 | cut -d ")" -f1)
+        temp=$(systemctl status ppanel-node | grep Active | awk '{print $3}' | cut -d "(" -f2 | cut -d ")" -f1)
         if [[ x"${temp}" == x"running" ]]; then
             return 0
         else
@@ -222,8 +222,8 @@ generate_ppnode_config() {
         local server_id="$2"
         local secret_key="$3"
 
-        mkdir -p /etc/PPanel-node >/dev/null 2>&1
-        cat > /etc/PPanel-node/config.yml <<EOF
+        mkdir -p /etc/ppanel-node >/dev/null 2>&1
+        cat > /etc/ppanel-node/config.yml <<EOF
 Log:
   # 日志等级，可选: debug, info, warn(warning), error
   Level: warn
@@ -248,9 +248,9 @@ Api:
 EOF
         echo -e "${green}PPanel-node 配置文件生成完成,正在重新启动服务${plain}"
         if [[ x"${release}" == x"alpine" ]]; then
-            service PPanel-node restart
+            service ppanel-node restart
         else
-            systemctl restart PPanel-node
+            systemctl restart ppanel-node
         fi
         sleep 2
         check_status
@@ -264,30 +264,30 @@ EOF
 
 install_ppnode() {
     local version_param="$1"
-    if [[ -e /usr/local/PPanel-node/ ]]; then
-        rm -rf /usr/local/PPanel-node/
+    if [[ -e /usr/local/ppanel-node/ ]]; then
+        rm -rf /usr/local/ppanel-node/
     fi
 
-    mkdir /usr/local/PPanel-node/ -p
-    cd /usr/local/PPanel-node/
+    mkdir /usr/local/ppanel-node/ -p
+    cd /usr/local/ppanel-node/
 
     if  [[ -z "$version_param" ]] ; then
-        last_version=$(curl -Ls "https://api.github.com/repos/perfect-panel/PPanel-node/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+        last_version=$(curl -Ls "https://api.github.com/repos/phenix3443/ppanel-node/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
         if [[ ! -n "$last_version" ]]; then
             echo -e "${red}检测 PPanel-node 版本失败，可能是超出 Github API 限制，请稍后再试，或手动指定 PPanel-node 版本安装${plain}"
             exit 1
         fi
         echo -e "${green}检测到最新版本：${last_version}，开始安装...${plain}"
-        url="https://github.com/perfect-panel/PPanel-node/releases/download/${last_version}/ppanel-node-linux-${arch}.zip"
-        curl -sL "$url" | pv -s 30M -W -N "下载进度" > /usr/local/PPanel-node/ppanel-node-linux.zip
+        url="https://github.com/phenix3443/ppanel-node/releases/download/${last_version}/ppanel-node-linux-${arch}.zip"
+        curl -sL "$url" | pv -s 30M -W -N "下载进度" > /usr/local/ppanel-node/ppanel-node-linux.zip
         if [[ $? -ne 0 ]]; then
             echo -e "${red}下载 PPanel-node 失败，请确保你的服务器能够下载 Github 的文件${plain}"
             exit 1
         fi
     else
     last_version=$version_param
-        url="https://github.com/perfect-panel/PPanel-node/releases/download/${last_version}/ppanel-node-linux-${arch}.zip"
-        curl -sL "$url" | pv -s 30M -W -N "下载进度" > /usr/local/PPanel-node/ppanel-node-linux.zip
+        url="https://github.com/phenix3443/ppanel-node/releases/download/${last_version}/ppanel-node-linux-${arch}.zip"
+        curl -sL "$url" | pv -s 30M -W -N "下载进度" > /usr/local/ppanel-node/ppanel-node-linux.zip
         if [[ $? -ne 0 ]]; then
             echo -e "${red}下载 PPanel-node $1 失败，请确保此版本存在${plain}"
             exit 1
@@ -297,18 +297,18 @@ install_ppnode() {
     unzip ppanel-node-linux.zip
     rm ppanel-node-linux.zip -f
     chmod +x ppnode
-    mkdir /etc/PPanel-node/ -p
-    cp geoip.dat /etc/PPanel-node/
-    cp geosite.dat /etc/PPanel-node/
+    mkdir /etc/ppanel-node/ -p
+    cp geoip.dat /etc/ppanel-node/
+    cp geosite.dat /etc/ppanel-node/
     if [[ x"${release}" == x"alpine" ]]; then
-        rm /etc/init.d/PPanel-node -f
-        cat <<EOF > /etc/init.d/PPanel-node
+        rm /etc/init.d/ppanel-node -f
+        cat <<EOF > /etc/init.d/ppanel-node
 #!/sbin/openrc-run
 
-name="PPanel-node"
-description="PPanel-node"
+name="ppanel-node"
+description="PPanel Node"
 
-command="/usr/local/PPanel-node/ppnode"
+command="/usr/local/ppanel-node/ppnode"
 command_args="server"
 command_user="root"
 
@@ -319,54 +319,61 @@ depend() {
         need net
 }
 EOF
-        chmod +x /etc/init.d/PPanel-node
-        rc-update add PPanel-node default
+        chmod +x /etc/init.d/ppanel-node
+        rc-update add ppanel-node default
         echo -e "${green}PPanel-node ${last_version}${plain} 安装完成，已设置开机自启"
     else
-        rm /etc/systemd/system/PPanel-node.service -f
-        cat <<EOF > /etc/systemd/system/PPanel-node.service
+        rm /etc/systemd/system/ppanel-node.service -f
+        cat <<EOF > /etc/systemd/system/ppanel-node.service
 [Unit]
-Description=PPanel-node Service
-After=network.target nss-lookup.target
-Wants=network.target
+Description=PPanel Node (xray-core based proxy agent)
+After=network-online.target nss-lookup.target
+Wants=network-online.target
+# 【面板可能在 tailnet 里】ApiHost 是 *.ts.net 时要等 tailscaled 起来才解析得到。
+# tailscaled 不存在时这条 After 会被忽略，不影响普通部署。
+After=tailscaled.service
 
 [Service]
-User=root
-Group=root
 Type=simple
-LimitAS=infinity
-LimitRSS=infinity
-LimitCORE=infinity
-LimitNOFILE=999999
-WorkingDirectory=/usr/local/PPanel-node/
-ExecStart=/usr/local/PPanel-node/ppnode server
-Restart=always
-RestartSec=10
+WorkingDirectory=/usr/local/ppanel-node/
+ExecStart=/usr/local/ppanel-node/ppnode server -c /etc/ppanel-node/config.yml
+Environment=XRAY_LOCATION_ASSET=/usr/local/ppanel-node
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=1048576
+# 绑 443 需要，其余能力不给
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/log
 
 [Install]
 WantedBy=multi-user.target
 EOF
         systemctl daemon-reload
-        systemctl stop PPanel-node
-        systemctl enable PPanel-node
+        systemctl stop ppanel-node
+        systemctl enable ppanel-node
         echo -e "${green}PPanel-node ${last_version}${plain} 安装完成，已设置开机自启"
     fi
 
-    if [[ ! -f /etc/PPanel-node/config.yml ]]; then
+    if [[ ! -f /etc/ppanel-node/config.yml ]]; then
         # 如果通过 CLI 传入了完整参数，则直接生成配置并跳过交互
         if [[ -n "$API_HOST_ARG" && -n "$SERVER_ID_ARG" && -n "$SECRET_KEY_ARG" ]]; then
             generate_ppnode_config "$API_HOST_ARG" "$SERVER_ID_ARG" "$SECRET_KEY_ARG"
-            echo -e "${green}已根据参数生成 /etc/PPanel-node/config.yml${plain}"
+            echo -e "${green}已根据参数生成 /etc/ppanel-node/config.yml${plain}"
             first_install=false
         else
-            cp config.yml /etc/PPanel-node/
+            cp config.yml /etc/ppanel-node/
             first_install=true
         fi
     else
         if [[ x"${release}" == x"alpine" ]]; then
-            service PPanel-node start
+            service ppanel-node start
         else
-            systemctl start PPanel-node
+            systemctl start ppanel-node
         fi
         sleep 2
         check_status
@@ -380,7 +387,7 @@ EOF
     fi
 
 
-    curl -o /usr/bin/ppnode -Ls https://raw.githubusercontent.com/perfect-panel/ppanel-node/master/scripts/ppnode.sh
+    curl -o /usr/bin/ppnode -Ls https://raw.githubusercontent.com/phenix3443/ppanel-node/master/scripts/ppnode.sh
     chmod +x /usr/bin/ppnode
 
     cd $cur_dir
@@ -405,7 +412,7 @@ EOF
     echo "------------------------------------------"
 
     if [[ $first_install == true ]]; then
-        read -rp "检测到你为第一次安装 PPanel-node，是否自动生成 /etc/PPanel-node/config.yml？(y/n): " if_generate
+        read -rp "检测到你为第一次安装 PPanel-node，是否自动生成 /etc/ppanel-node/config.yml？(y/n): " if_generate
         if [[ "$if_generate" =~ ^[Yy]$ ]]; then
             # 交互式收集参数，提供示例默认值
             read -rp "面板API地址[格式: https://example.com/]: " api_host

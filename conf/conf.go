@@ -8,9 +8,17 @@ import (
 )
 
 type Conf struct {
-	LogConfig LogConfig       `mapstructure:"Log"`
-	ApiConfig ServerApiConfig `mapstructure:"Api"`
-	PprofPort int             `mapstructure:"PprofPort"`
+	LogConfig     LogConfig       `mapstructure:"Log"`
+	ApiConfig     ServerApiConfig `mapstructure:"Api"`
+	PprofPort     int             `mapstructure:"PprofPort"`
+	UpgradeConfig UpgradeConfig   `mapstructure:"Upgrade"`
+}
+
+// UpgradeConfig 控制 `ppanel-node upgrade` 从哪个仓库取 release。
+// 留空用内置默认值（我们自己的 fork）——上游仓库只会把节点装回缺
+// REALITY 缓冲修复的版本。
+type UpgradeConfig struct {
+	Repo string `mapstructure:"Repo"`
 }
 
 type LogConfig struct {

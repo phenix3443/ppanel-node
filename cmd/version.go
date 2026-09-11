@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 
+	"github.com/perfect-panel/ppanel-node/internal/buildinfo"
 	"github.com/spf13/cobra"
 )
 
@@ -21,6 +22,8 @@ var versionCommand = cobra.Command{
 }
 
 func init() {
+	// ldflags 打的是本包的 version，其余包统一从 buildinfo 读。
+	buildinfo.Set(version)
 	command.AddCommand(&versionCommand)
 }
 
