@@ -2,30 +2,35 @@ package inbound
 
 import "testing"
 
-// REALITY 缓存目标站握手的缓冲是写死的 8192（xtls/reality tls.go:140 的 size），
-// 超出时它直接 break、不留任何日志，运维只看到 "handshake did not complete
-// successfully"，因果被指向客户端。这两个测试锁住我们自己的预检逻辑。
-func TestFirstOversizedRecordFlagsChainOverBudget(t *testing.T) {
-	// 2026-09-11 www.microsoft.com 实测：承载证书的那条记录 8273 > 8192。
-	lengths := []int{127, 6, 53, 8268}
-	got := FirstOversizedRecord(lengths, realityHandshakeBudget)
-	if got != 8273 {
-		t.Fatalf("FirstOversizedRecord = %d, want 8273 (记录长度要含 5 字节头)", got)
+// 预算跟着 xtls/reality 的 tls.go 里的 size 走，升依赖时必须一起核对。
+// 2026-09-08 XTLS/REALITY#33 把它从 8192 提到了 17*1024。
+func TestBudgetMatchesUpstreamBuffer(t *testing.T) {
+	if realityHandshakeBudget != 17*1024 {
+		t.Fatalf("realityHandshakeBudget = %d，和依赖里的 size 对不上了；"+
+			"升 xtls/reality 之后要同步这个常量", realityHandshakeBudget)
 	}
 }
 
-func TestFirstOversizedRecordAcceptsChainWithinBudget(t *testing.T) {
-	// dl.google.com 那一档，全部记录都在预算内。
-	lengths := []int{127, 6, 53, 4912}
+func TestFirstOversizedRecordFlagsRecordOverBudget(t *testing.T) {
+	lengths := []int{127, 6, 53, 17404} // 17404+5 = 17409，刚过线
+	if got := FirstOversizedRecord(lengths, realityHandshakeBudget); got != 17409 {
+		t.Fatalf("FirstOversizedRecord = %d, want 17409（记录长度要含 5 字节头）", got)
+	}
+}
+
+// www.microsoft.com 那条 8273 字节的记录，在 8192 时代会打挂整条链路
+// （XTLS/Xray-core#6356），升到 17KiB 之后应当放行。
+func TestFirstOversizedRecordAcceptsFormerlyFatalMicrosoftChain(t *testing.T) {
+	lengths := []int{127, 6, 53, 8268} // 8268+5 = 8273
 	if got := FirstOversizedRecord(lengths, realityHandshakeBudget); got != 0 {
-		t.Fatalf("FirstOversizedRecord = %d, want 0", got)
+		t.Fatalf("FirstOversizedRecord = %d, want 0（8273 在 17KiB 预算内）", got)
 	}
 }
 
 func TestFirstOversizedRecordReportsTheFirstOffender(t *testing.T) {
-	lengths := []int{9000, 20000}
-	if got := FirstOversizedRecord(lengths, realityHandshakeBudget); got != 9005 {
-		t.Fatalf("FirstOversizedRecord = %d, want 9005（第一条，不是最大的那条）", got)
+	lengths := []int{20000, 30000}
+	if got := FirstOversizedRecord(lengths, realityHandshakeBudget); got != 20005 {
+		t.Fatalf("FirstOversizedRecord = %d, want 20005（第一条，不是最大的那条）", got)
 	}
 }
 
@@ -42,8 +47,7 @@ func TestRecordLenConnHandlesSplitAndBatchedRecords(t *testing.T) {
 	for _, chunk := range []int{1, 3, 5, 7, 4096, len(stream)} {
 		c := &recordLenConn{}
 		for i := 0; i < len(stream); i += chunk {
-			end := min(i+chunk, len(stream))
-			c.scan(stream[i:end])
+			c.scan(stream[i:min(i+chunk, len(stream))])
 		}
 		want := []int{127, 6, 8268}
 		if len(c.lengths) != len(want) {
@@ -53,9 +57,6 @@ func TestRecordLenConnHandlesSplitAndBatchedRecords(t *testing.T) {
 			if c.lengths[i] != want[i] {
 				t.Fatalf("chunk=%d: 解析出 %v, want %v", chunk, c.lengths, want)
 			}
-		}
-		if got := FirstOversizedRecord(c.lengths, realityHandshakeBudget); got != 8273 {
-			t.Fatalf("chunk=%d: FirstOversizedRecord = %d, want 8273", chunk, got)
 		}
 	}
 }
