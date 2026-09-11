@@ -1,0 +1,67 @@
+# 每周比对 go.mod 里 pin 的上游依赖和它们的最新提交，落后就开 issue。
+#
+# 【为什么要它】2026-09-11 踩过：REALITY 的一个缓冲修复 9-08 就合了，但
+# ppanel-node 依赖的第三方 fork wyx2685/xray-core 停在 8-28、上游 ppanel-node
+# 的 tag 又发布于 9-07，修复卡在链条中间。这期间节点对所有客户端都连不上，
+# 而没有任何东西提示我们依赖落后了。
+name: Dependency freshness
+
+on:
+  schedule:
+    # 每周一 03:00 UTC
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 落后多少天算需要处理
+        required: false
+        default: "7"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Compare pinned deps against upstream
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set +e
+          out=$(go run ./scripts/depcheck/cmd -days "${{ inputs.days || 7 }}")
+          code=$?
+          set -e
+          echo "$out"
+          {
+            echo 'report<<EOF'
+            echo "$out"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+          echo "stale=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      # 复用同一个 issue，避免每周刷一条新的。
+      - name: Open or update the tracking issue
+        if: steps.check.outputs.stale == '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPORT: ${{ steps.check.outputs.report }}
+        run: |
+          title="依赖落后于上游"
+          body=$(printf '%s\n\n```\n%s\n```\n\n由 `.github/workflows/dep-freshness.yml` 自动更新。升依赖时记得同步 `core/inbound/realitydest.go` 里的 `realityHandshakeBudget`（有测试守着）。' \
+            "下面这些 pin 已经落后上游超过阈值：" "$REPORT")
+          existing=$(gh issue list --state open --search "$title in:title" --json number -q '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
