@@ -185,6 +185,9 @@ func buildVlessUser(tag string, userInfo *panel.UserInfo, flow string) (user *pr
 	vlessAccount := &vless.Account{
 		Id: userInfo.Uuid,
 	}
+	if flow == "none" {
+		flow = ""
+	}
 	vlessAccount.Flow = flow
 	return &protocol.User{
 		Level:   0,
