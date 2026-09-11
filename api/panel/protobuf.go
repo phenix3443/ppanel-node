@@ -122,6 +122,8 @@ func serverConfigResponseFromProtobuf(message *serverv1.QueryServerProtocolConfi
 		Outbound:               &outbound,
 		Protocols:              &protocols,
 		Total:                  int(message.Data.Total),
+		// 节点走的就是这条解码路径，漏了它整套自动升级是死的且不报错。
+		TargetVersion: message.Data.TargetVersion,
 	}
 	return response
 }

@@ -24,7 +24,7 @@ import (
 	"github.com/perfect-panel/ppanel-node/common/logx"
 )
 
-const certificateDirectory = "/etc/PPanel-node"
+const certificateDirectory = "/etc/ppanel-node"
 
 func certificatePaths(info *panel.NodeInfo) (string, string) {
 	base := info.Type + strconv.Itoa(info.Id)

@@ -28,6 +28,9 @@ type Data struct {
 	Outbound               *[]Outbound `json:"outbound"`
 	Protocols              *[]Protocol `json:"protocols"`
 	Total                  int         `json:"total"`
+	// TargetVersion 是控制台希望本节点运行的版本。空串表示不干预。
+	// 可能比当前更旧——控制台用它做回退。
+	TargetVersion string `json:"target_version,omitempty"`
 }
 
 type DNSItem struct {

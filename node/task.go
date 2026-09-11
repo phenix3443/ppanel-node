@@ -11,6 +11,7 @@ import (
 	"github.com/perfect-panel/ppanel-node/common/serverstatus"
 	"github.com/perfect-panel/ppanel-node/common/task"
 	vCore "github.com/perfect-panel/ppanel-node/core"
+	"github.com/perfect-panel/ppanel-node/internal/buildinfo"
 )
 
 func (c *Controller) startTasks(node *panel.NodeInfo) {
@@ -150,12 +151,17 @@ func (c *Controller) reportOnlineAndStatus(ctx context.Context, userTraffic []pa
 	if err != nil {
 		logx.Node(c.tag).WithError(err).Error("获取系统信息失败")
 	}
+	// 【只上报自己的版本】「上游最新版是多少」由面板去查，不在这里查：
+	// 心跳每 60 秒一次，N 个节点各自打 GitHub 会打满未认证 API 的 60 次/小时；
+	// 而且升级决策该由控制台下发，不该让节点自己追最新。
+
 	err = c.apiClient.ReportNodeStatusContext(ctx,
 		&panel.NodeStatus{
-			CPU:    CPU,
-			Mem:    Mem,
-			Disk:   Disk,
-			Uptime: Uptime,
+			CPU:     CPU,
+			Mem:     Mem,
+			Disk:    Disk,
+			Uptime:  Uptime,
+			Version: buildinfo.Version(),
 		})
 	if err != nil {
 		logx.Node(c.tag).WithError(err).Error("上报节点状态失败")

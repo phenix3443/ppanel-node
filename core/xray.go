@@ -12,6 +12,8 @@ import (
 	"github.com/perfect-panel/ppanel-node/conf"
 	"github.com/perfect-panel/ppanel-node/core/app/dispatcher"
 	_ "github.com/perfect-panel/ppanel-node/core/distro/all"
+	"github.com/perfect-panel/ppanel-node/internal/buildinfo"
+	"github.com/perfect-panel/ppanel-node/internal/selfupdate"
 	"github.com/perfect-panel/ppanel-node/limiter"
 	"github.com/xtls/xray-core/app/proxyman"
 	"github.com/xtls/xray-core/app/stats"
@@ -184,6 +186,15 @@ func (c *XrayCore) ServerConfigMonitor(ctx context.Context) (err error) {
 		return nil
 	}
 	if newServerConfig != nil {
+		// 控制台下发的期望版本也在这份配置里。放在重载之前处理：升级会替换
+		// 二进制并重启进程，重启后新版本会自己重新拉一次配置。
+		// 失败只记日志——升不上去不该连带让配置重载也停摆。
+		if err := selfupdate.ApplyTargetVersion(
+			buildinfo.Version(), newServerConfig.Data.TargetVersion, "", nil,
+		); err != nil {
+			logx.Component("xray").WithError(err).Error("按控制台下发的期望版本升级失败")
+		}
+
 		logx.Component("xray").Info("检测到服务端配置变更，已投递重载信号")
 		// Non-blocking signal to avoid goroutine stuck when channel is full or nil
 		if c.ReloadCh != nil {

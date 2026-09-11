@@ -107,7 +107,7 @@ before_show_menu() {
 }
 
 install() {
-    bash <(curl -Ls https://raw.githubusercontent.com/perfect-panel/PPanel-node/master/scripts/install.sh)
+    bash <(curl -Ls https://raw.githubusercontent.com/phenix3443/ppanel-node/master/scripts/install.sh)
     if [[ $? == 0 ]]; then
         if [[ $# == 0 ]]; then
             start
@@ -123,7 +123,7 @@ update() {
     else
         version=$2
     fi
-    bash <(curl -Ls https://raw.githubusercontent.com/perfect-panel/PPanel-node/master/scripts/install.sh) $version
+    bash <(curl -Ls https://raw.githubusercontent.com/phenix3443/ppanel-node/master/scripts/install.sh) $version
     if [[ $? == 0 ]]; then
         echo -e "${green}更新完成，已自动重启 PPanel-node，请使用 ppnode log 查看运行日志${plain}"
         exit
@@ -136,7 +136,7 @@ update() {
 
 config() {
     echo "PPanel-node在修改配置后会自动尝试重启"
-    vi /etc/PPanel-node/config.yml
+    vi /etc/ppanel-node/config.yml
     sleep 2
     restart
     check_status
@@ -166,18 +166,18 @@ uninstall() {
         return 0
     fi
     if [[ x"${release}" == x"alpine" ]]; then
-        service PPanel-node stop
-        rc-update del PPanel-node
-        rm /etc/init.d/PPanel-node -f
+        service ppanel-node stop
+        rc-update del ppanel-node
+        rm /etc/init.d/ppanel-node -f
     else
-        systemctl stop PPanel-node
-        systemctl disable PPanel-node
-        rm /etc/systemd/system/PPanel-node.service -f
+        systemctl stop ppanel-node
+        systemctl disable ppanel-node
+        rm /etc/systemd/system/ppanel-node.service -f
         systemctl daemon-reload
         systemctl reset-failed
     fi
-    rm /etc/PPanel-node/ -rf
-    rm /usr/local/PPanel-node/ -rf
+    rm /etc/ppanel-node/ -rf
+    rm /usr/local/ppanel-node/ -rf
 
     echo ""
     echo -e "卸载成功，如果你想删除此脚本，则退出脚本后运行 ${green}rm /usr/bin/ppnode -f${plain} 进行删除"
@@ -195,9 +195,9 @@ start() {
         echo -e "${green}PPanel-node已运行，无需再次启动，如需重启请选择重启${plain}"
     else
         if [[ x"${release}" == x"alpine" ]]; then
-            service PPanel-node start
+            service ppanel-node start
         else
-            systemctl start PPanel-node
+            systemctl start ppanel-node
         fi
         sleep 2
         check_status
@@ -215,9 +215,9 @@ start() {
 
 stop() {
     if [[ x"${release}" == x"alpine" ]]; then
-        service PPanel-node stop
+        service ppanel-node stop
     else
-        systemctl stop PPanel-node
+        systemctl stop ppanel-node
     fi
     sleep 2
     check_status
@@ -234,9 +234,9 @@ stop() {
 
 restart() {
     if [[ x"${release}" == x"alpine" ]]; then
-        service PPanel-node restart
+        service ppanel-node restart
     else
-        systemctl restart PPanel-node
+        systemctl restart ppanel-node
     fi
     sleep 2
     check_status
@@ -252,9 +252,9 @@ restart() {
 
 status() {
     if [[ x"${release}" == x"alpine" ]]; then
-        service PPanel-node status
+        service ppanel-node status
     else
-        systemctl status PPanel-node --no-pager -l
+        systemctl status ppanel-node --no-pager -l
     fi
     if [[ $# == 0 ]]; then
         before_show_menu
@@ -263,9 +263,9 @@ status() {
 
 enable() {
     if [[ x"${release}" == x"alpine" ]]; then
-        rc-update add PPanel-node
+        rc-update add ppanel-node
     else
-        systemctl enable PPanel-node
+        systemctl enable ppanel-node
     fi
     if [[ $? == 0 ]]; then
         echo -e "${green}PPanel-node 设置开机自启成功${plain}"
@@ -280,9 +280,9 @@ enable() {
 
 disable() {
     if [[ x"${release}" == x"alpine" ]]; then
-        rc-update del PPanel-node
+        rc-update del ppanel-node
     else
-        systemctl disable PPanel-node
+        systemctl disable ppanel-node
     fi
     if [[ $? == 0 ]]; then
         echo -e "${green}PPanel-node 取消开机自启成功${plain}"
@@ -299,7 +299,7 @@ show_log() {
     if [[ x"${release}" == x"alpine" ]]; then   
         echo -e "${red}alpine系统暂不支持日志查看${plain}\n" && exit 1
     else
-        journalctl -u PPanel-node -e --no-pager -f
+        journalctl -u ppanel-node -e --no-pager -f
     fi
     if [[ $# == 0 ]]; then
         before_show_menu
@@ -308,7 +308,7 @@ show_log() {
 
 
 update_shell() {
-    wget -O /usr/bin/ppnode -N --no-check-certificate https://raw.githubusercontent.com/perfect-panel/ppanel-node/master/scripts/ppnode.sh
+    wget -O /usr/bin/ppnode -N --no-check-certificate https://raw.githubusercontent.com/phenix3443/ppanel-node/master/scripts/ppnode.sh
     if [[ $? != 0 ]]; then
         echo ""
         echo -e "${red}下载脚本失败，请检查本机能否连接 Github${plain}"
@@ -321,18 +321,18 @@ update_shell() {
 
 # 0: running, 1: not running, 2: not installed
 check_status() {
-    if [[ ! -f /usr/local/PPanel-node/ppnode ]]; then
+    if [[ ! -f /usr/local/ppanel-node/ppnode ]]; then
         return 2
     fi
     if [[ x"${release}" == x"alpine" ]]; then
-        temp=$(service PPanel-node status | awk '{print $3}')
+        temp=$(service ppanel-node status | awk '{print $3}')
         if [[ x"${temp}" == x"started" ]]; then
             return 0
         else
             return 1
         fi
     else
-        temp=$(systemctl status PPanel-node | grep Active | awk '{print $3}' | cut -d "(" -f2 | cut -d ")" -f1)
+        temp=$(systemctl status ppanel-node | grep Active | awk '{print $3}' | cut -d "(" -f2 | cut -d ")" -f1)
         if [[ x"${temp}" == x"running" ]]; then
             return 0
         else
@@ -343,14 +343,14 @@ check_status() {
 
 check_enabled() {
     if [[ x"${release}" == x"alpine" ]]; then
-        temp=$(rc-update show | grep PPanel-node)
+        temp=$(rc-update show | grep ppanel-node)
         if [[ x"${temp}" == x"" ]]; then
             return 1
         else
             return 0
         fi
     else
-        temp=$(systemctl is-enabled PPanel-node)
+        temp=$(systemctl is-enabled ppanel-node)
         if [[ x"${temp}" == x"enabled" ]]; then
             return 0
         else
@@ -411,9 +411,9 @@ show_enable_status() {
     fi
 }
 
-show_PPanel-node_version() {
+show_ppanel_node_version() {
     echo -n "PPanel-node 版本："
-    /usr/local/PPanel-node/ppnode version
+    /usr/local/ppanel-node/ppnode version
     echo ""
     if [[ $# == 0 ]]; then
         before_show_menu
@@ -425,8 +425,8 @@ generate_ppnode_config() {
         local server_id="$2"
         local secret_key="$3"
 
-        mkdir -p /etc/PPanel-node >/dev/null 2>&1
-        cat > /etc/PPanel-node/config.yml <<EOF
+        mkdir -p /etc/ppanel-node >/dev/null 2>&1
+        cat > /etc/ppanel-node/config.yml <<EOF
 Log:
   # 日志等级，可选: debug, info, warn(warning), error
   Level: warn
@@ -451,9 +451,9 @@ Api:
 EOF
         echo -e "${green}PPanel-node 配置文件生成完成,正在重新启动服务${plain}"
         if [[ x"${release}" == x"alpine" ]]; then
-            service PPanel-node restart
+            service ppanel-node restart
         else
-            systemctl restart PPanel-node
+            systemctl restart ppanel-node
         fi
         sleep 2
         check_status
@@ -517,7 +517,7 @@ show_usage() {
 show_menu() {
     echo -e "
   ${green}PPanel-node 后端管理脚本，${plain}${red}不适用于docker${plain}
---- https://github.com/perfect-panel/PPanel-node ---
+--- https://github.com/phenix3443/ppanel-node ---
   ${green}0.${plain} 修改配置
 ————————————————
   ${green}1.${plain} 安装 PPanel-node
@@ -555,7 +555,7 @@ show_menu() {
         8) check_install && show_log ;;
         9) check_install && enable ;;
         10) check_install && disable ;;
-        11) check_install && show_PPanel-node_version ;;
+        11) check_install && show_ppanel_node_version ;;
         12) update_shell ;;
         13) generate_config_file ;;
         14) open_ports ;;
@@ -579,7 +579,7 @@ if [[ $# > 0 ]]; then
         "generate") generate_config_file ;;
         "install") check_uninstall 0 && install 0 ;;
         "uninstall") check_install 0 && uninstall 0 ;;
-        "version") check_install 0 && show_PPanel-node_version 0 ;;
+        "version") check_install 0 && show_ppanel_node_version 0 ;;
         "update_shell") update_shell ;;
         *) show_usage
     esac
