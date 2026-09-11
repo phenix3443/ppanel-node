@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/perfect-panel/ppanel-node/api/panel"
 	tuiccompat "github.com/perfect-panel/ppanel-node/core/transport/tuic"
@@ -83,6 +85,14 @@ func Build(nodeInfo *panel.NodeInfo, tag string) (*core.InboundHandlerConfig, er
 			v.RealityServerPort))
 		if err != nil {
 			return nil, fmt.Errorf("marshal reality dest error: %s", err)
+		}
+		// 【启动期就把 dest 量一遍】超出 reality 的 8192 缓冲时它只会静默放弃，
+		// 运维看到的是客户端侧的 "handshake did not complete"，因果指向错误。
+		// 这里不阻断启动——dest 暂时不可达不该让节点起不来——但要吼出来。
+		if destErr := CheckRealityDest(
+			fmt.Sprintf("%s:%d", add, v.RealityServerPort), v.SNI, 8*time.Second,
+		); destErr != nil {
+			log.Printf("[REALITY 预检] %v", destErr)
 		}
 		in.StreamSetting.REALITYSettings = &coreConf.REALITYConfig{
 			Dest:        d,
