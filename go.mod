@@ -206,7 +206,10 @@ require (
 	github.com/volcengine/volc-sdk-golang v1.0.216 // indirect
 	github.com/vultr/govultr/v3 v3.21.1 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
-	github.com/xtls/reality v0.0.0-20260910011853-5dabb073f8e8 // indirect
+	// 【不要升过 e1986a4d31ca】下一个提交 8cdf7bf9c7f0 起，ClientHello 不带
+	// X25519MLKEM768 的一律不认证、直接回落：mihomo 默认会剥掉它（要客户端显式写
+	// support-x25519mlkem768），sing-box 完全连不上。这个版本已含 17KiB 缓冲修复。
+	github.com/xtls/reality v0.0.0-20260908045812-e1986a4d31ca // indirect
 	github.com/yandex-cloud/go-genproto v0.14.0 // indirect
 	github.com/yandex-cloud/go-sdk/services/dns v0.0.3 // indirect
 	github.com/yandex-cloud/go-sdk/v2 v2.0.8 // indirect
